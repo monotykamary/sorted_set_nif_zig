@@ -11,18 +11,32 @@ const SortedSetResource = struct {
 };
 
 const atoms = struct {
-    const ok = nif.atom("ok");
-    const bad_reference = nif.atom("bad_reference");
-    const lock_fail = nif.atom("lock_fail");
-    const added = nif.atom("added");
-    const duplicate = nif.atom("duplicate");
-    const removed = nif.atom("removed");
-    const unsupported_type = nif.atom("unsupported_type");
-    const not_found = nif.atom("not_found");
-    const index_out_of_bounds = nif.atom("index_out_of_bounds");
-    const max_bucket_size_exceeded = nif.atom("max_bucket_size_exceeded");
-    const jemalloc_not_supported = nif.atom("jemalloc_not_supported");
+    var ok: nif.Atom = undefined;
+    var bad_reference: nif.Atom = undefined;
+    var lock_fail: nif.Atom = undefined;
+    var added: nif.Atom = undefined;
+    var duplicate: nif.Atom = undefined;
+    var removed: nif.Atom = undefined;
+    var unsupported_type: nif.Atom = undefined;
+    var not_found: nif.Atom = undefined;
+    var index_out_of_bounds: nif.Atom = undefined;
+    var max_bucket_size_exceeded: nif.Atom = undefined;
+    var jemalloc_not_supported: nif.Atom = undefined;
 };
+
+fn initAtoms(env: *nif.c.ErlNifEnv) void {
+    atoms.ok = nif.atomCached(env, "ok");
+    atoms.bad_reference = nif.atomCached(env, "bad_reference");
+    atoms.lock_fail = nif.atomCached(env, "lock_fail");
+    atoms.added = nif.atomCached(env, "added");
+    atoms.duplicate = nif.atomCached(env, "duplicate");
+    atoms.removed = nif.atomCached(env, "removed");
+    atoms.unsupported_type = nif.atomCached(env, "unsupported_type");
+    atoms.not_found = nif.atomCached(env, "not_found");
+    atoms.index_out_of_bounds = nif.atomCached(env, "index_out_of_bounds");
+    atoms.max_bucket_size_exceeded = nif.atomCached(env, "max_bucket_size_exceeded");
+    atoms.jemalloc_not_supported = nif.atomCached(env, "jemalloc_not_supported");
+}
 
 fn sortedSetResourceDtor(_: ?*nif.c.ErlNifEnv, obj: ?*anyopaque) callconv(.c) void {
     if (obj == null) return;
@@ -40,6 +54,8 @@ fn load(env: ?*nif.c.ErlNifEnv, _: [*c]?*anyopaque, _: nif.Term) callconv(.c) c_
         nif.c.ERL_NIF_RT_CREATE | nif.c.ERL_NIF_RT_TAKEOVER,
         null,
     );
+    nif.initCommonAtoms(env_ptr);
+    initAtoms(env_ptr);
 
     return if (SortedSetResource.resource_type == null) 1 else 0;
 }
@@ -185,7 +201,7 @@ fn jemalloc_allocation_info(_: nif.Env) nif.Result(nif.Atom) {
 
 fn makeTaggedIndex(env: *nif.c.ErlNifEnv, tag: nif.Atom, index: usize) nif.Term {
     const idx_term = nif.c.enif_make_uint64(env, @intCast(index));
-    return nif.makeTuple2(env, nif.makeAtom(env, tag.name), idx_term);
+    return nif.makeTuple2(env, nif.makeAtomTerm(env, tag), idx_term);
 }
 
 fn deinitTermSlice(items: []SupportedTerm) void {

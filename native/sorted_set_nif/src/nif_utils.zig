@@ -13,10 +13,15 @@ pub const Env = struct {
 
 pub const Atom = struct {
     name: []const u8,
+    term: ?Term = null,
 };
 
 pub fn atom(name: []const u8) Atom {
-    return .{ .name = name };
+    return .{ .name = name, .term = null };
+}
+
+pub fn atomCached(env: *c.ErlNifEnv, name: []const u8) Atom {
+    return .{ .name = name, .term = makeAtom(env, name) };
 }
 
 pub fn Result(comptime T: type) type {
@@ -64,6 +69,9 @@ pub const BeamAllocator = struct {
 };
 
 pub const beam_allocator = BeamAllocator.allocator();
+
+pub var ok_term: ?Term = null;
+pub var error_term: ?Term = null;
 
 pub fn wrap(comptime func: anytype) *const fn (?*c.ErlNifEnv, c_int, [*c]const Term) callconv(.c) Term {
     const FnType = @TypeOf(func);
@@ -118,9 +126,7 @@ pub fn wrap(comptime func: anytype) *const fn (?*c.ErlNifEnv, c_int, [*c]const T
                 }
             }
 
-            var arena = std.heap.ArenaAllocator.init(beam_allocator);
-            defer arena.deinit();
-            const temp_allocator = arena.allocator();
+            const temp_allocator = beam_allocator;
 
             if (@typeInfo(fn_info.return_type.?) == .error_union) {
                 const value = @call(.auto, func, args) catch {
@@ -155,6 +161,15 @@ pub fn makeAtom(env: *c.ErlNifEnv, name: []const u8) Term {
     return c.enif_make_atom_len(env, name.ptr, name.len);
 }
 
+pub fn makeAtomTerm(env: *c.ErlNifEnv, atom_value: Atom) Term {
+    return atom_value.term orelse makeAtom(env, atom_value.name);
+}
+
+pub fn initCommonAtoms(env: *c.ErlNifEnv) void {
+    ok_term = makeAtom(env, "ok");
+    error_term = makeAtom(env, "error");
+}
+
 pub fn makeTuple2(env: *c.ErlNifEnv, a: Term, b: Term) Term {
     return c.enif_make_tuple2(env, a, b);
 }
@@ -164,11 +179,13 @@ pub fn makeTuple3(env: *c.ErlNifEnv, a: Term, b: Term, c_term: Term) Term {
 }
 
 pub fn makeOk(env: *c.ErlNifEnv, value: anytype, allocator: std.mem.Allocator) Term {
-    return makeTuple2(env, makeAtom(env, "ok"), encodeValue(env, value, allocator));
+    const ok_atom = ok_term orelse makeAtom(env, "ok");
+    return makeTuple2(env, ok_atom, encodeValue(env, value, allocator));
 }
 
 pub fn makeError(env: *c.ErlNifEnv, err_atom: Atom) Term {
-    return makeTuple2(env, makeAtom(env, "error"), makeAtom(env, err_atom.name));
+    const error_atom = error_term orelse makeAtom(env, "error");
+    return makeTuple2(env, error_atom, makeAtomTerm(env, err_atom));
 }
 
 fn encodeResult(env: *c.ErlNifEnv, value: anytype, allocator: std.mem.Allocator) Term {
@@ -231,7 +248,7 @@ fn encodeValue(env: *c.ErlNifEnv, value: anytype, allocator: std.mem.Allocator) 
     const T = @TypeOf(value);
 
     if (T == Term) return value;
-    if (T == Atom) return makeAtom(env, value.name);
+    if (T == Atom) return makeAtomTerm(env, value);
     if (T == SupportedTerm) return encodeSupportedTerm(env, &value, allocator);
 
     switch (@typeInfo(T)) {
@@ -260,15 +277,24 @@ fn encodeValue(env: *c.ErlNifEnv, value: anytype, allocator: std.mem.Allocator) 
 
 fn makeBinary(env: *c.ErlNifEnv, value: []const u8, allocator: std.mem.Allocator) Term {
     _ = allocator;
-    var bin: c.ErlNifBinary = undefined;
-    if (c.enif_alloc_binary(value.len, &bin) == 0) {
-        return c.enif_make_badarg(env);
-    }
-    std.mem.copyForwards(u8, bin.data[0..value.len], value);
-    return c.enif_make_binary(env, &bin);
+    var out_term: Term = undefined;
+    const data = c.enif_make_new_binary(env, value.len, &out_term);
+    if (data == null) return c.enif_make_badarg(env);
+    const buf: [*]u8 = @ptrCast(data.?);
+    std.mem.copyForwards(u8, buf[0..value.len], value);
+    return out_term;
 }
 
 fn makeTermList(env: *c.ErlNifEnv, items: []const SupportedTerm, allocator: std.mem.Allocator) Term {
+    const small_limit = 8;
+    if (items.len <= small_limit) {
+        var small_terms: [small_limit]Term = undefined;
+        for (items, 0..) |item, idx| {
+            small_terms[idx] = encodeSupportedTerm(env, &item, allocator);
+        }
+        return c.enif_make_list_from_array(env, small_terms[0..items.len].ptr, @intCast(items.len));
+    }
+
     const terms = allocator.alloc(Term, items.len) catch return c.enif_make_badarg(env);
     defer allocator.free(terms);
 
@@ -282,14 +308,23 @@ fn makeTermList(env: *c.ErlNifEnv, items: []const SupportedTerm, allocator: std.
 pub fn encodeSupportedTerm(env: *c.ErlNifEnv, term: *const SupportedTerm, allocator: std.mem.Allocator) Term {
     return switch (term.*) {
         .Integer => |value| c.enif_make_int64(env, value),
-        .Atom => |value| makeAtom(env, value),
-        .Bitstring => |value| makeBinary(env, value, allocator),
+        .Atom => |value| makeAtom(env, value.slice()),
+        .Bitstring => |value| makeBinary(env, value.slice(), allocator),
         .Tuple => |items| makeTermTuple(env, items, allocator),
         .List => |items| makeTermList(env, items, allocator),
     };
 }
 
 fn makeTermTuple(env: *c.ErlNifEnv, items: []const SupportedTerm, allocator: std.mem.Allocator) Term {
+    const small_limit = 8;
+    if (items.len <= small_limit) {
+        var small_terms: [small_limit]Term = undefined;
+        for (items, 0..) |item, idx| {
+            small_terms[idx] = encodeSupportedTerm(env, &item, allocator);
+        }
+        return c.enif_make_tuple_from_array(env, small_terms[0..items.len].ptr, @intCast(items.len));
+    }
+
     const terms = allocator.alloc(Term, items.len) catch return c.enif_make_badarg(env);
     defer allocator.free(terms);
 
@@ -350,36 +385,24 @@ fn decodeResource(comptime T: type, env: *c.ErlNifEnv, term: Term) DecodeError!*
 }
 
 fn decodeSupportedTerm(env: *c.ErlNifEnv, term: Term, allocator: std.mem.Allocator) DecodeError!SupportedTerm {
-    if (c.enif_is_number(env, term) != 0) {
-        var value: i64 = 0;
-        if (c.enif_get_int64(env, term, &value) == 0) return error.UnsupportedType;
+    var value: i64 = 0;
+    if (c.enif_get_int64(env, term, &value) != 0) {
         return .{ .Integer = value };
     }
 
-    if (c.enif_is_atom(env, term) != 0) {
-        var length: c_uint = 0;
-        if (c.enif_get_atom_length(env, term, &length, c.ERL_NIF_UTF8) == 0) {
+    var atom_length: c_uint = 0;
+    if (c.enif_get_atom_length(env, term, &atom_length, c.ERL_NIF_UTF8) != 0) {
+        const buf = allocator.alloc(u8, @as(usize, atom_length) + 1) catch return error.BadArg;
+        errdefer allocator.free(buf);
+        if (c.enif_get_atom(env, term, buf.ptr, @intCast(buf.len), c.ERL_NIF_UTF8) == 0) {
             return error.UnsupportedType;
         }
-
-        const tmp = allocator.alloc(u8, length + 1) catch return error.BadArg;
-        defer allocator.free(tmp);
-        if (c.enif_get_atom(env, term, tmp.ptr, @intCast(tmp.len), c.ERL_NIF_UTF8) == 0) {
-            return error.UnsupportedType;
-        }
-
-        const buf = allocator.alloc(u8, length) catch return error.BadArg;
-        std.mem.copyForwards(u8, buf, tmp[0..length]);
-        return .{ .Atom = buf };
+        return .{ .Atom = .{ .bytes = buf, .len = atom_length } };
     }
 
-    if (c.enif_is_tuple(env, term) != 0) {
-        var arity: c_int = 0;
-        var tuple_terms: [*c]const Term = undefined;
-        if (c.enif_get_tuple(env, term, &arity, &tuple_terms) == 0) {
-            return error.UnsupportedType;
-        }
-
+    var arity: c_int = 0;
+    var tuple_terms: [*c]const Term = undefined;
+    if (c.enif_get_tuple(env, term, &arity, &tuple_terms) != 0) {
         const count: usize = @intCast(arity);
         const items = allocator.alloc(SupportedTerm, count) catch return error.BadArg;
         var idx: usize = 0;
@@ -398,21 +421,20 @@ fn decodeSupportedTerm(env: *c.ErlNifEnv, term: Term, allocator: std.mem.Allocat
         return .{ .Tuple = items };
     }
 
-    if (c.enif_is_list(env, term) != 0) {
-        const items = try decodeSupportedTermList(env, term, allocator);
+    var list_length: c_uint = 0;
+    if (c.enif_get_list_length(env, term, &list_length) != 0) {
+        const items = try decodeSupportedTermListWithLength(env, term, allocator, @as(usize, list_length));
         return .{ .List = items };
     }
 
-    if (c.enif_is_binary(env, term) != 0) {
-        var bin: c.ErlNifBinary = undefined;
-        if (c.enif_inspect_binary(env, term, &bin) == 0) return error.UnsupportedType;
-
+    var bin: c.ErlNifBinary = undefined;
+    if (c.enif_inspect_binary(env, term, &bin) != 0) {
         const bytes = bin.data[0..bin.size];
         if (!std.unicode.utf8ValidateSlice(bytes)) return error.UnsupportedType;
 
         const buf = allocator.alloc(u8, bytes.len) catch return error.BadArg;
         std.mem.copyForwards(u8, buf, bytes);
-        return .{ .Bitstring = buf };
+        return .{ .Bitstring = .{ .bytes = buf, .len = bytes.len } };
     }
 
     return error.UnsupportedType;
@@ -422,7 +444,15 @@ fn decodeSupportedTermList(env: *c.ErlNifEnv, term: Term, allocator: std.mem.All
     var length: c_uint = 0;
     if (c.enif_get_list_length(env, term, &length) == 0) return error.UnsupportedType;
 
-    const count: usize = @intCast(length);
+    return decodeSupportedTermListWithLength(env, term, allocator, @intCast(length));
+}
+
+fn decodeSupportedTermListWithLength(
+    env: *c.ErlNifEnv,
+    term: Term,
+    allocator: std.mem.Allocator,
+    count: usize,
+) DecodeError![]SupportedTerm {
     const items = allocator.alloc(SupportedTerm, count) catch return error.BadArg;
 
     var list = term;

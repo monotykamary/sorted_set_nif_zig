@@ -32,14 +32,13 @@ defmodule Discord.SortedSet.Concurrency.Test do
       gather_loop(name, target, gathered)
     end
 
-    def retry_on_lock(f, a, 50) do
-      flunk("Unable to execute #{inspect(f)}(#{inspect(a)}) after 50 tries")
+    def retry_on_lock(f, a, 10) do
+      flunk("Unable to execute #{inspect(f)}(#{inspect(a)}) after 10 tries")
     end
 
     def retry_on_lock(f, a, count) do
       case apply(SortedSet, f, a) do
         {:error, :lock_fail} ->
-          Process.sleep(1)
           retry_on_lock(f, a, count + 1)
 
         other ->

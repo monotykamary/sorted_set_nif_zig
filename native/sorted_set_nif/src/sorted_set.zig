@@ -129,6 +129,16 @@ pub const SortedSet = struct {
         return result;
     }
 
+    fn insertBucket(self: *SortedSet, idx: usize, bucket: Bucket) void {
+        if (self.buckets.items.len == self.buckets.capacity) {
+            self.buckets.ensureTotalCapacity(self.allocator, self.buckets.items.len + 1) catch unreachable;
+        }
+
+        self.buckets.items.len += 1;
+        @memmove(self.buckets.items[idx + 1 .. self.buckets.items.len], self.buckets.items[idx .. self.buckets.items.len - 1]);
+        self.buckets.items[idx] = bucket;
+    }
+
     pub fn add(self: *SortedSet, item: SupportedTerm) AddResult {
         const bucket_idx = self.findBucketIndex(&item);
         const result = self.buckets.items[bucket_idx].add(item);
@@ -140,7 +150,7 @@ pub const SortedSet = struct {
 
                 if (bucket_len >= self.configuration.max_bucket_size) {
                     const new_bucket = self.buckets.items[bucket_idx].split();
-                    self.buckets.insert(self.allocator, bucket_idx + 1, new_bucket) catch unreachable;
+                    self.insertBucket(bucket_idx + 1, new_bucket);
                 }
 
                 self.count += 1;
@@ -272,7 +282,7 @@ const testing = std.testing;
 fn makeBitstring(allocator: std.mem.Allocator, value: []const u8) !SupportedTerm {
     const buf = try allocator.alloc(u8, value.len);
     std.mem.copyForwards(u8, buf, value);
-    return .{ .Bitstring = buf };
+    return .{ .Bitstring = .{ .bytes = buf, .len = buf.len } };
 }
 
 fn expectTermSlicesEqual(expected: []const SupportedTerm, actual: []const SupportedTerm) !void {

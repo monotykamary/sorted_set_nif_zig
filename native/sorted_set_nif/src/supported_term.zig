@@ -1,17 +1,26 @@
 const std = @import("std");
 
+pub const ByteString = struct {
+    bytes: []u8,
+    len: usize,
+
+    pub fn slice(self: ByteString) []const u8 {
+        return self.bytes[0..self.len];
+    }
+};
+
 pub const SupportedTerm = union(enum) {
     Integer: i64,
-    Atom: []u8,
+    Atom: ByteString,
     Tuple: []SupportedTerm,
     List: []SupportedTerm,
-    Bitstring: []u8,
+    Bitstring: ByteString,
 
     pub fn deinit(self: *SupportedTerm, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .Integer => {},
-            .Atom => |value| allocator.free(value),
-            .Bitstring => |value| allocator.free(value),
+            .Atom => |value| allocator.free(value.bytes),
+            .Bitstring => |value| allocator.free(value.bytes),
             .Tuple => |items| {
                 for (items) |*item| {
                     item.deinit(allocator);
@@ -54,7 +63,7 @@ pub const SupportedTerm = union(enum) {
                 else => unreachable,
             },
             .Atom => |lhs| switch (other) {
-                .Atom => |rhs| std.mem.order(u8, lhs, rhs),
+                .Atom => |rhs| std.mem.order(u8, lhs.slice(), rhs.slice()),
                 else => unreachable,
             },
             .Tuple => |lhs| switch (other) {
@@ -66,7 +75,7 @@ pub const SupportedTerm = union(enum) {
                 else => unreachable,
             },
             .Bitstring => |lhs| switch (other) {
-                .Bitstring => |rhs| std.mem.order(u8, lhs, rhs),
+                .Bitstring => |rhs| std.mem.order(u8, lhs.slice(), rhs.slice()),
                 else => unreachable,
             },
         };
@@ -108,10 +117,10 @@ pub const SupportedTerm = union(enum) {
         return std.math.order(lhs.len, rhs.len);
     }
 
-    fn cloneBytes(value: []u8, allocator: std.mem.Allocator) std.mem.Allocator.Error![]u8 {
-        const result = try allocator.alloc(u8, value.len);
-        std.mem.copyForwards(u8, result, value);
-        return result;
+    fn cloneBytes(value: ByteString, allocator: std.mem.Allocator) std.mem.Allocator.Error!ByteString {
+        const result = try allocator.alloc(u8, value.bytes.len);
+        std.mem.copyForwards(u8, result, value.bytes);
+        return .{ .bytes = result, .len = value.len };
     }
 
     fn cloneItems(items: []SupportedTerm, allocator: std.mem.Allocator) std.mem.Allocator.Error![]SupportedTerm {

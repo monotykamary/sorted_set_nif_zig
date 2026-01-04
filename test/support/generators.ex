@@ -19,7 +19,7 @@ defmodule Discord.SortedSet.Test.Support.Generator do
     StreamData.one_of([
       unsupported_term_scalars(),
       nested_tuple(unsupported_term_scalars()),
-      StreamData.nonempty(nested_list(unsupported_term_scalars()))
+      nested_list_with_unsupported(unsupported_term_scalars())
     ])
   end
 
@@ -44,6 +44,19 @@ defmodule Discord.SortedSet.Test.Support.Generator do
           inner,
           StreamData.tuple({inner}),
           StreamData.list_of(inner)
+        ])
+      )
+    )
+  end
+
+  @spec nested_list_with_unsupported(inner :: StreamData.t()) :: StreamData.t()
+  defp nested_list_with_unsupported(inner) do
+    StreamData.nonempty(
+      StreamData.list_of(
+        StreamData.one_of([
+          inner,
+          StreamData.tuple({inner}),
+          StreamData.nonempty(StreamData.list_of(inner))
         ])
       )
     )

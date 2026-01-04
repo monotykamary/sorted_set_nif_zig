@@ -47,7 +47,7 @@ pub const Bucket = struct {
             }
         }
 
-        self.data.insert(self.allocator, lo, owned_item) catch unreachable;
+        self.insertAt(lo, owned_item);
         return .{ .Added = lo };
     }
 
@@ -86,6 +86,16 @@ pub const Bucket = struct {
         }
 
         return .eq;
+    }
+
+    fn insertAt(self: *Bucket, idx: usize, item: SupportedTerm) void {
+        if (self.data.items.len == self.data.capacity) {
+            self.data.ensureTotalCapacity(self.allocator, self.data.items.len + 1) catch unreachable;
+        }
+
+        self.data.items.len += 1;
+        @memmove(self.data.items[idx + 1 .. self.data.items.len], self.data.items[idx .. self.data.items.len - 1]);
+        self.data.items[idx] = item;
     }
 };
 
