@@ -4,6 +4,10 @@ SortedSet is a fast and efficient data structure that provides certain guarantee
 functionality. The core data structure and algorithms are implemented in a Native Implemented
 Function in the Zig Programming Language using a small custom NIF wrapper.
 
+By default, the NIF allocates storage with `enif_alloc` (the BEAM allocator). This keeps
+memory accounting visible to the VM (`erlang:memory/0`) and reduces allocator mismatch risks.
+You can switch to the system allocator if you want maximum throughput.
+
 ## Installation
 
 Add SortedSet to your dependencies and then install with `mix do deps.get, deps.compile`
@@ -95,11 +99,15 @@ OPTIMIZE_NIF=true mix run bench/{benchmark}.exs
 
 Adding the `OPTIMIZE_NIF=true` will force the benchmark to run against the fully optimized NIF.
 
-Allocator selection (default is BEAM allocator):
+Allocator selection (default is BEAM allocator via `enif_alloc`):
 
 ```bash
 USE_BEAM_ALLOCATOR=1 OPTIMIZE_NIF=true make -B
 ```
+
+We default to the BEAM allocator because it is VM-aware, shows up in `erlang:memory/0`, and
+reduces the risk of allocator mismatches inside NIFs. This keeps memory accounting and
+operational behavior consistent with the rest of the BEAM runtime.
 
 Switch to the system allocator for NIF storage:
 
