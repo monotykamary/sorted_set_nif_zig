@@ -1,0 +1,3 @@
+#ifndef USE_BEAM_ALLOCATOR
+#define USE_BEAM_ALLOCATOR 1
+#endif

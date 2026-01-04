@@ -3,6 +3,7 @@ const SupportedTerm = @import("supported_term.zig").SupportedTerm;
 
 pub const c = @cImport({
     @cInclude("erl_nif.h");
+    @cInclude("allocator_config.h");
 });
 
 pub const Term = c.ERL_NIF_TERM;
@@ -69,6 +70,8 @@ pub const BeamAllocator = struct {
 };
 
 pub const beam_allocator = BeamAllocator.allocator();
+pub const use_beam_allocator_for_storage = c.USE_BEAM_ALLOCATOR != 0;
+pub const storage_allocator = if (use_beam_allocator_for_storage) beam_allocator else std.heap.c_allocator;
 
 pub var ok_term: ?Term = null;
 pub var error_term: ?Term = null;
@@ -119,7 +122,7 @@ pub fn wrap(comptime func: anytype) *const fn (?*c.ErlNifEnv, c_int, [*c]const T
                 } else {
                     const argv_index = if (expects_env) field_idx - 1 else field_idx;
                     const term = argv[argv_index];
-                    const decoded = decodeArg(field.type, env_ptr, term, beam_allocator) catch |err| {
+                    const decoded = decodeArg(field.type, env_ptr, term, storage_allocator) catch |err| {
                         return decodeErrorToTerm(env_ptr, err);
                     };
                     @field(args, field.name) = decoded;
@@ -133,13 +136,13 @@ pub fn wrap(comptime func: anytype) *const fn (?*c.ErlNifEnv, c_int, [*c]const T
                     return c.enif_make_badarg(env_ptr);
                 };
                 const term = encodeResult(env_ptr, value, temp_allocator);
-                cleanupResult(value, beam_allocator);
+                cleanupResult(value, storage_allocator);
                 return term;
             }
 
             const value = @call(.auto, func, args);
             const term = encodeResult(env_ptr, value, temp_allocator);
-            cleanupResult(value, beam_allocator);
+            cleanupResult(value, storage_allocator);
             return term;
         }
     }.wrapped;

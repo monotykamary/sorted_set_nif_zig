@@ -5,6 +5,8 @@ SRC := $(NATIVE_DIR)/src/lib.zig
 PRIV_DIR := priv
 OUT := $(PRIV_DIR)/$(NIF_NAME).so
 MIX_PRIV_DIR := $(MIX_APP_PATH)/priv
+USE_BEAM_ALLOCATOR ?= 1
+ZIG_C_DEFS := -DUSE_BEAM_ALLOCATOR=$(USE_BEAM_ALLOCATOR)
 
 ERL_ROOT := $(shell erl -noshell -eval 'io:format("~s", [code:root_dir()]).' -s init stop)
 ERL_VERSION := $(shell erl -noshell -eval 'io:format("~s", [erlang:system_info(version)]).' -s init stop)
@@ -22,6 +24,8 @@ $(OUT): $(SRC) $(wildcard $(NATIVE_DIR)/src/*.zig)
 	@mkdir -p $(PRIV_DIR)
 	$(ZIG) build-lib -dynamic -fPIC -fallow-shlib-undefined $(ZIG_OPT) \
 		-I$(ERL_INCLUDE_DIR) \
+		-I$(NATIVE_DIR)/src \
+		$(ZIG_C_DEFS) \
 		-femit-bin=$(OUT) \
 		$(SRC)
 

@@ -78,7 +78,7 @@ fn empty(env: nif.Env, initial_item_capacity: usize, max_bucket_size: usize) nif
     };
 
     const resource: *SortedSetResource = @ptrCast(@alignCast(raw_resource));
-    resource.* = .{ .set = SortedSet.empty(nif.beam_allocator, configuration) };
+    resource.* = .{ .set = SortedSet.empty(nif.storage_allocator, configuration) };
 
     const term = nif.c.enif_make_resource(env.raw, resource);
     nif.c.enif_release_resource(resource);
@@ -96,7 +96,7 @@ fn new(env: nif.Env, initial_item_capacity: usize, max_bucket_size: usize) nif.R
     };
 
     const resource: *SortedSetResource = @ptrCast(@alignCast(raw_resource));
-    resource.* = .{ .set = SortedSet.new(nif.beam_allocator, configuration) };
+    resource.* = .{ .set = SortedSet.new(nif.storage_allocator, configuration) };
 
     const term = nif.c.enif_make_resource(env.raw, resource);
     nif.c.enif_release_resource(resource);
@@ -120,7 +120,7 @@ fn append_bucket(_: nif.Env, resource: *SortedSetResource, items: []SupportedTer
 fn add(env: nif.Env, resource: *SortedSetResource, item: SupportedTerm) nif.Result(nif.Term) {
     if (!resource.mutex.tryLock()) {
         var owned = item;
-        owned.deinit(nif.beam_allocator);
+        owned.deinit(nif.storage_allocator);
         return .{ .err = atoms.lock_fail };
     }
     defer resource.mutex.unlock();
@@ -133,7 +133,7 @@ fn add(env: nif.Env, resource: *SortedSetResource, item: SupportedTerm) nif.Resu
 
 fn remove(env: nif.Env, resource: *SortedSetResource, item: SupportedTerm) nif.Result(nif.Term) {
     var owned = item;
-    defer owned.deinit(nif.beam_allocator);
+    defer owned.deinit(nif.storage_allocator);
 
     if (!resource.mutex.tryLock()) {
         return .{ .err = atoms.lock_fail };
@@ -177,7 +177,7 @@ fn slice(_: nif.Env, resource: *SortedSetResource, start: usize, amount: usize) 
 
 fn find_index(_: nif.Env, resource: *SortedSetResource, item: SupportedTerm) nif.Result(usize) {
     var owned = item;
-    defer owned.deinit(nif.beam_allocator);
+    defer owned.deinit(nif.storage_allocator);
 
     if (!resource.mutex.tryLock()) return .{ .err = atoms.lock_fail };
     defer resource.mutex.unlock();
@@ -192,7 +192,7 @@ fn debug(_: nif.Env, resource: *SortedSetResource) nif.Result([]u8) {
     if (!resource.mutex.tryLock()) return .{ .err = atoms.lock_fail };
     defer resource.mutex.unlock();
 
-    return .{ .ok = resource.set.debug(nif.beam_allocator) };
+    return .{ .ok = resource.set.debug(nif.storage_allocator) };
 }
 
 fn jemalloc_allocation_info(_: nif.Env) nif.Result(nif.Atom) {
@@ -206,9 +206,9 @@ fn makeTaggedIndex(env: *nif.c.ErlNifEnv, tag: nif.Atom, index: usize) nif.Term 
 
 fn deinitTermSlice(items: []SupportedTerm) void {
     for (items) |*item| {
-        item.deinit(nif.beam_allocator);
+        item.deinit(nif.storage_allocator);
     }
-    nif.beam_allocator.free(items);
+    nif.storage_allocator.free(items);
 }
 
 var nif_funcs = [_]nif.c.ErlNifFunc{
