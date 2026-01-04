@@ -95,6 +95,40 @@ OPTIMIZE_NIF=true mix run bench/{benchmark}.exs
 
 Adding the `OPTIMIZE_NIF=true` will force the benchmark to run against the fully optimized NIF.
 
+Allocator selection (default is BEAM allocator):
+
+```bash
+USE_BEAM_ALLOCATOR=1 OPTIMIZE_NIF=true make -B
+```
+
+Switch to the system allocator for NIF storage:
+
+```bash
+USE_BEAM_ALLOCATOR=0 OPTIMIZE_NIF=true make -B
+```
+
+## Benchmark Results
+
+Latency (index access, 1,000,000 items, best = index 0, worst = index 999,999; numbers in μs):
+
+| Case | Sorted List | OrderedSet | SortedSet (Zig+BEAM) | SortedSet (Zig+SYS) | SortedSet (Rust) |
+| --- | --- | --- | --- | --- | --- |
+| Best | 0.02 | 0.05 | 0.70 | 0.64 | 0.70 |
+| Worst | 1452.92 | 7630.11 | 0.70 | 0.76 | 1.09 |
+
+Sorted List and OrderedSet values are BEAM-only baselines from the Zig+BEAM run.
+
+IPS (1000 adds, average of 5 runs):
+
+| Size | Zig+BEAM | Zig+SYS | Rust |
+| --- | --- | --- | --- |
+| 5,000 | 1169.86 | 1196.46 | 1300.05 |
+| 50,000 | 1408.85 | 1443.83 | 1366.12 |
+| 250,000 | 1250.31 | 1329.43 | 1200.48 |
+| 500,000 | 1265.50 | 1179.52 | 1076.66 |
+| 750,000 | 1074.34 | 1178.41 | 1048.22 |
+| 1,000,000 | 1135.85 | 1135.85 | 1002.00 |
+
 ## Basic Usage
 
 SortedSet lives in the `Discord` namespace to prevent symbol collision, it can be used directly
