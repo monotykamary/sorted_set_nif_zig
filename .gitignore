@@ -1,0 +1,16 @@
+/_build/
+/deps/
+/doc/
+/cover/
+/.elixir_ls/
+/.fetch
+erl_crash.dump
+*.ez
+/priv/*.so
+/priv/*.dylib
+/priv/*.dll
+/zig_cstring_test
+/zig_string_test
+/zig-cache/
+/zig-out/
+.DS_Store
